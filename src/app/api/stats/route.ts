@@ -36,25 +36,26 @@ export async function GET() {
       .sort((a, b) => b.count - a.count)
       .slice(0, 10);
 
-    // By corporate type
-    const { data: typeData } = await supabase
-      .from('companies')
-      .select('corporate_type');
-
-    const typeCounts: Record<string, number> = {};
-    typeData?.forEach((c) => {
-      typeCounts[c.corporate_type] = (typeCounts[c.corporate_type] || 0) + 1;
-    });
-    const by_corporate_type = Object.entries(typeCounts)
-      .map(([corporate_type, count]) => ({ corporate_type, count }))
-      .sort((a, b) => b.count - a.count);
-
     // Recent companies
     const { data: recent } = await supabase
       .from('companies')
-      .select('id, name, prefecture, corporate_type, enrichment_status, created_at')
+      .select('id, name, prefecture, enrichment_status, created_at')
       .order('created_at', { ascending: false })
       .limit(5);
+
+    // Intent statistics
+    const { data: intentData } = await supabase
+      .from('company_intents')
+      .select('intent_level')
+      .eq('department_type', 'it');
+
+    const intentCounts = { hot: 0, middle: 0, low: 0, none: 0 };
+    if (intentData) {
+      for (const row of intentData) {
+        const level = row.intent_level as keyof typeof intentCounts;
+        if (level in intentCounts) intentCounts[level]++;
+      }
+    }
 
     return NextResponse.json({
       success: true,
@@ -63,8 +64,8 @@ export async function GET() {
         enriched_companies: enriched || 0,
         pending_companies: pending || 0,
         by_prefecture,
-        by_corporate_type,
         recent_companies: recent || [],
+        intent_stats: intentCounts,
       },
     });
   } catch {

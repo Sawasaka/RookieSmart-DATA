@@ -9,21 +9,6 @@ export const PREFECTURES = [
   '熊本県', '大分県', '宮崎県', '鹿児島県', '沖縄県'
 ] as const;
 
-// Corporate types
-export const CORPORATE_TYPES = [
-  '株式会社',
-  '有限会社',
-  '合同会社',
-  '合資会社',
-  '合名会社',
-  '一般社団法人',
-  '一般財団法人',
-  '公益社団法人',
-  '公益財団法人',
-  'NPO法人',
-  'その他'
-] as const;
-
 // Industry categories
 export const INDUSTRY_CATEGORIES = [
   'IT・通信',

@@ -78,6 +78,40 @@ export type Database = {
         Insert: Database['public']['Tables']['company_tags']['Row'];
         Update: Partial<Database['public']['Tables']['company_tags']['Insert']>;
       };
+      offices: {
+        Row: {
+          id: string;
+          company_id: string;
+          name: string;
+          office_type: string;
+          prefecture: string | null;
+          city: string | null;
+          address: string | null;
+          phone: string | null;
+          website_url: string | null;
+          is_primary: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Omit<Database['public']['Tables']['offices']['Row'], 'id' | 'created_at' | 'updated_at'>;
+        Update: Partial<Database['public']['Tables']['offices']['Insert']>;
+      };
+      departments: {
+        Row: {
+          id: string;
+          company_id: string;
+          office_id: string | null;
+          name: string;
+          department_type: string | null;
+          parent_department_id: string | null;
+          headcount: string | null;
+          description: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Omit<Database['public']['Tables']['departments']['Row'], 'id' | 'created_at' | 'updated_at'>;
+        Update: Partial<Database['public']['Tables']['departments']['Insert']>;
+      };
     };
   };
 };

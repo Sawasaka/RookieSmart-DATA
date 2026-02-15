@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select,
   SelectContent,
@@ -14,6 +15,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import {
   Table,
   TableBody,
@@ -34,9 +40,13 @@ import {
   ArrowDown,
   X,
   ExternalLink,
+  Filter,
+  Tag,
+  ChevronDown,
 } from 'lucide-react';
-import { PREFECTURES, CORPORATE_TYPES, ENRICHMENT_STATUS_LABELS, PAGE_SIZE_OPTIONS } from '@/lib/constants';
-import type { Company, PaginatedResponse, EnrichmentStatus } from '@/types';
+import { PREFECTURES, ENRICHMENT_STATUS_LABELS, PAGE_SIZE_OPTIONS } from '@/lib/constants';
+import type { Company, PaginatedResponse, EnrichmentStatus, Industry, ServiceTag, IntentLevel } from '@/types';
+import { INTENT_LEVEL_LABELS } from '@/types';
 
 const STATUS_STYLES: Record<EnrichmentStatus, string> = {
   pending: 'status-pending',
@@ -45,17 +55,47 @@ const STATUS_STYLES: Record<EnrichmentStatus, string> = {
   failed: 'status-failed',
 };
 
-type SortField = 'name' | 'prefecture' | 'corporate_type' | 'created_at';
+const EMPLOYEE_RANGES = [
+  { value: '0-50', label: '〜50名' },
+  { value: '50-300', label: '50〜300名' },
+  { value: '300-1000', label: '300〜1,000名' },
+  { value: '1000-5000', label: '1,000〜5,000名' },
+  { value: '5000-', label: '5,000名〜' },
+];
+
+const REVENUE_RANGES = [
+  { value: '0-1000000000', label: '〜10億円' },
+  { value: '1000000000-100000000000', label: '10〜1,000億円' },
+  { value: '100000000000-1000000000000', label: '1,000億〜1兆円' },
+  { value: '1000000000000-', label: '1兆円〜' },
+];
+
+const INTENT_LEVEL_OPTIONS: { value: IntentLevel; label: string; color: string }[] = [
+  { value: 'hot', label: 'ホット', color: 'bg-red-100 text-red-700 border-red-200' },
+  { value: 'middle', label: 'ミドル', color: 'bg-orange-100 text-orange-700 border-orange-200' },
+  { value: 'low', label: 'ロー', color: 'bg-gray-100 text-gray-600 border-gray-200' },
+  { value: 'none', label: 'なし', color: 'bg-gray-50 text-gray-400 border-gray-100' },
+];
+
+type SortField = 'name' | 'prefecture' | 'created_at';
 
 export default function CompaniesPage() {
   const [data, setData] = useState<PaginatedResponse<Company> | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Filter options
+  const [industries, setIndustries] = useState<Industry[]>([]);
+  const [availableTags, setAvailableTags] = useState<ServiceTag[]>([]);
+
   // Filters
   const [search, setSearch] = useState('');
   const [prefecture, setPrefecture] = useState('');
-  const [corporateType, setCorporateType] = useState('');
   const [enrichmentStatus, setEnrichmentStatus] = useState('');
+  const [industryId, setIndustryId] = useState('');
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  const [employeeRange, setEmployeeRange] = useState('');
+  const [revenueRange, setRevenueRange] = useState('');
+  const [intentLevel, setIntentLevel] = useState('');
 
   // Pagination
   const [page, setPage] = useState(1);
@@ -64,6 +104,25 @@ export default function CompaniesPage() {
   // Sorting
   const [sortBy, setSortBy] = useState<SortField>('created_at');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+
+  // Fetch filter options
+  useEffect(() => {
+    async function fetchOptions() {
+      try {
+        const [indRes, tagRes] = await Promise.all([
+          fetch('/api/industries'),
+          fetch('/api/tags'),
+        ]);
+        const indJson = await indRes.json();
+        const tagJson = await tagRes.json();
+        if (indJson.success) setIndustries(indJson.data);
+        if (tagJson.success) setAvailableTags(tagJson.data);
+      } catch {
+        // ignore
+      }
+    }
+    fetchOptions();
+  }, []);
 
   const fetchCompanies = useCallback(async () => {
     setLoading(true);
@@ -74,8 +133,12 @@ export default function CompaniesPage() {
     params.set('sort_order', sortOrder);
     if (search) params.set('search', search);
     if (prefecture) params.set('prefecture', prefecture);
-    if (corporateType) params.set('corporate_type', corporateType);
     if (enrichmentStatus) params.set('enrichment_status', enrichmentStatus);
+    if (industryId) params.set('industry_id', industryId);
+    if (selectedTagIds.length > 0) params.set('tag_ids', selectedTagIds.join(','));
+    if (employeeRange) params.set('employee_range', employeeRange);
+    if (revenueRange) params.set('revenue_range', revenueRange);
+    if (intentLevel) params.set('intent_level', intentLevel);
 
     try {
       const res = await fetch(`/api/companies?${params}`);
@@ -88,7 +151,7 @@ export default function CompaniesPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, perPage, sortBy, sortOrder, search, prefecture, corporateType, enrichmentStatus]);
+  }, [page, perPage, sortBy, sortOrder, search, prefecture, enrichmentStatus, industryId, selectedTagIds, employeeRange, revenueRange, intentLevel]);
 
   useEffect(() => {
     fetchCompanies();
@@ -114,16 +177,29 @@ export default function CompaniesPage() {
     setPage(1);
   };
 
+  const toggleTag = (tagId: string) => {
+    setSelectedTagIds((prev) =>
+      prev.includes(tagId)
+        ? prev.filter((id) => id !== tagId)
+        : [...prev, tagId]
+    );
+    setPage(1);
+  };
+
   const clearFilters = () => {
     setSearchInput('');
     setSearch('');
     setPrefecture('');
-    setCorporateType('');
     setEnrichmentStatus('');
+    setIndustryId('');
+    setSelectedTagIds([]);
+    setEmployeeRange('');
+    setRevenueRange('');
+    setIntentLevel('');
     setPage(1);
   };
 
-  const hasFilters = search || prefecture || corporateType || enrichmentStatus;
+  const hasFilters = search || prefecture || enrichmentStatus || industryId || selectedTagIds.length > 0 || employeeRange || revenueRange || intentLevel;
 
   const SortIcon = ({ field }: { field: SortField }) => {
     if (sortBy !== field) return <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground/50" />;
@@ -133,6 +209,8 @@ export default function CompaniesPage() {
       <ArrowDown className="h-3.5 w-3.5 text-primary" />
     );
   };
+
+  const activeFilterCount = [prefecture, enrichmentStatus, industryId, employeeRange, revenueRange, intentLevel].filter(Boolean).length + (selectedTagIds.length > 0 ? 1 : 0);
 
   return (
     <div className="space-y-6">
@@ -160,10 +238,20 @@ export default function CompaniesPage() {
               />
             </div>
 
-            {/* Filter Row */}
+            {/* Filter Row 1 */}
             <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-1.5 text-sm text-muted-foreground mr-1">
+                <Filter className="h-3.5 w-3.5" />
+                フィルター
+                {activeFilterCount > 0 && (
+                  <Badge variant="default" className="h-5 w-5 p-0 flex items-center justify-center text-[10px]">
+                    {activeFilterCount}
+                  </Badge>
+                )}
+              </div>
+
               <Select value={prefecture} onValueChange={(v) => { setPrefecture(v === '__all__' ? '' : v); setPage(1); }}>
-                <SelectTrigger className="w-[160px]">
+                <SelectTrigger className="w-[140px]">
                   <SelectValue placeholder="都道府県" />
                 </SelectTrigger>
                 <SelectContent>
@@ -174,20 +262,20 @@ export default function CompaniesPage() {
                 </SelectContent>
               </Select>
 
-              <Select value={corporateType} onValueChange={(v) => { setCorporateType(v === '__all__' ? '' : v); setPage(1); }}>
-                <SelectTrigger className="w-[160px]">
-                  <SelectValue placeholder="法人種別" />
+              <Select value={industryId} onValueChange={(v) => { setIndustryId(v === '__all__' ? '' : v); setPage(1); }}>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="業界" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__all__">すべて</SelectItem>
-                  {CORPORATE_TYPES.map((t) => (
-                    <SelectItem key={t} value={t}>{t}</SelectItem>
+                  {industries.map((ind) => (
+                    <SelectItem key={ind.id} value={ind.id}>{ind.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
 
               <Select value={enrichmentStatus} onValueChange={(v) => { setEnrichmentStatus(v === '__all__' ? '' : v); setPage(1); }}>
-                <SelectTrigger className="w-[160px]">
+                <SelectTrigger className="w-[140px]">
                   <SelectValue placeholder="ステータス" />
                 </SelectTrigger>
                 <SelectContent>
@@ -208,6 +296,112 @@ export default function CompaniesPage() {
               <div className="ml-auto text-sm text-muted-foreground">
                 {data ? `${data.total.toLocaleString()} 件` : '-'}
               </div>
+            </div>
+
+            {/* Filter Row 2 */}
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Service Tags - Multi Select */}
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="h-9 gap-1.5">
+                    <Tag className="h-3.5 w-3.5" />
+                    サービスタグ
+                    {selectedTagIds.length > 0 && (
+                      <Badge variant="default" className="h-4 min-w-4 px-1 flex items-center justify-center text-[10px]">
+                        {selectedTagIds.length}
+                      </Badge>
+                    )}
+                    <ChevronDown className="h-3.5 w-3.5 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[280px] p-3" align="start">
+                  <div className="space-y-1 max-h-[300px] overflow-y-auto">
+                    {availableTags.map((tag) => (
+                      <label
+                        key={tag.id}
+                        className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted cursor-pointer text-sm"
+                      >
+                        <Checkbox
+                          checked={selectedTagIds.includes(tag.id)}
+                          onCheckedChange={() => toggleTag(tag.id)}
+                        />
+                        {tag.name}
+                      </label>
+                    ))}
+                  </div>
+                  {selectedTagIds.length > 0 && (
+                    <div className="border-t mt-2 pt-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-full h-7 text-xs"
+                        onClick={() => { setSelectedTagIds([]); setPage(1); }}
+                      >
+                        タグをクリア
+                      </Button>
+                    </div>
+                  )}
+                </PopoverContent>
+              </Popover>
+
+              {/* Employee Count Range */}
+              <Select value={employeeRange} onValueChange={(v) => { setEmployeeRange(v === '__all__' ? '' : v); setPage(1); }}>
+                <SelectTrigger className="w-[160px]">
+                  <SelectValue placeholder="従業員数" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">すべて</SelectItem>
+                  {EMPLOYEE_RANGES.map((r) => (
+                    <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              {/* Revenue Range */}
+              <Select value={revenueRange} onValueChange={(v) => { setRevenueRange(v === '__all__' ? '' : v); setPage(1); }}>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="売上" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">すべて</SelectItem>
+                  {REVENUE_RANGES.map((r) => (
+                    <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              {/* Intent Level */}
+              <Select value={intentLevel} onValueChange={(v) => { setIntentLevel(v === '__all__' ? '' : v); setPage(1); }}>
+                <SelectTrigger className="w-[160px]">
+                  <SelectValue placeholder="インテント" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">すべて</SelectItem>
+                  {INTENT_LEVEL_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              {/* Selected tag badges */}
+              {selectedTagIds.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {selectedTagIds.map((tagId) => {
+                    const tag = availableTags.find((t) => t.id === tagId);
+                    return tag ? (
+                      <Badge
+                        key={tagId}
+                        variant="secondary"
+                        className="cursor-pointer hover:bg-destructive/10 hover:text-destructive transition-colors"
+                        onClick={() => toggleTag(tagId)}
+                      >
+                        {tag.name}
+                        <X className="h-3 w-3 ml-1" />
+                      </Badge>
+                    ) : null;
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </CardContent>
@@ -243,17 +437,9 @@ export default function CompaniesPage() {
                     <SortIcon field="prefecture" />
                   </button>
                 </TableHead>
-                <TableHead className="w-[15%]">
-                  <button
-                    onClick={() => handleSort('corporate_type')}
-                    className="flex items-center gap-1.5 hover:text-foreground transition-colors"
-                  >
-                    法人種別
-                    <SortIcon field="corporate_type" />
-                  </button>
-                </TableHead>
-                <TableHead className="w-[15%]">ステータス</TableHead>
-                <TableHead className="w-[15%] pr-6 text-right">操作</TableHead>
+                <TableHead className="w-[12%]">インテント</TableHead>
+                <TableHead className="w-[12%]">ステータス</TableHead>
+                <TableHead className="w-[10%] pr-6 text-right">操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -262,7 +448,7 @@ export default function CompaniesPage() {
                   <TableRow key={i}>
                     <TableCell className="pl-6"><Skeleton className="h-5 w-48" /></TableCell>
                     <TableCell><Skeleton className="h-5 w-16" /></TableCell>
-                    <TableCell><Skeleton className="h-5 w-20" /></TableCell>
+                    <TableCell><Skeleton className="h-5 w-14" /></TableCell>
                     <TableCell><Skeleton className="h-5 w-14" /></TableCell>
                     <TableCell className="pr-6"><Skeleton className="h-5 w-12 ml-auto" /></TableCell>
                   </TableRow>
@@ -287,9 +473,7 @@ export default function CompaniesPage() {
                     </TableCell>
                     <TableCell className="text-muted-foreground">{company.prefecture}</TableCell>
                     <TableCell>
-                      <Badge variant="outline" className="font-normal">
-                        {company.corporate_type}
-                      </Badge>
+                      <IntentBadge level={company.intent?.intent_level} />
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline" className={STATUS_STYLES[company.enrichment_status]}>
@@ -405,6 +589,17 @@ export default function CompaniesPage() {
         </div>
       )}
     </div>
+  );
+}
+
+function IntentBadge({ level }: { level?: IntentLevel }) {
+  if (!level) return <span className="text-xs text-muted-foreground">—</span>;
+  const opt = INTENT_LEVEL_OPTIONS.find((o) => o.value === level);
+  if (!opt) return <span className="text-xs text-muted-foreground">—</span>;
+  return (
+    <Badge variant="outline" className={opt.color}>
+      {INTENT_LEVEL_LABELS[level]}
+    </Badge>
   );
 }
 

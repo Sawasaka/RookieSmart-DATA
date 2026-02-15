@@ -14,6 +14,7 @@ import {
   Database,
   Sparkles,
   Target,
+  Flame,
 } from 'lucide-react';
 import Link from 'next/link';
 import { ENRICHMENT_STATUS_LABELS } from '@/lib/constants';
@@ -24,15 +25,19 @@ interface StatsData {
   enriched_companies: number;
   pending_companies: number;
   by_prefecture: { prefecture: string; count: number }[];
-  by_corporate_type: { corporate_type: string; count: number }[];
   recent_companies: {
     id: string;
     name: string;
     prefecture: string;
-    corporate_type: string;
     enrichment_status: EnrichmentStatus;
     created_at: string;
   }[];
+  intent_stats?: {
+    hot: number;
+    middle: number;
+    low: number;
+    none: number;
+  };
 }
 
 const STATUS_STYLES: Record<EnrichmentStatus, string> = {
@@ -174,6 +179,39 @@ export default function DashboardPage() {
         </Card>
       </div>
 
+      {/* Intent Stats */}
+      {stats?.intent_stats && (stats.intent_stats.hot > 0 || stats.intent_stats.middle > 0 || stats.intent_stats.low > 0) && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Flame className="h-4 w-4" />
+              インテントデータ（情報システム部門）
+            </CardTitle>
+            <CardDescription>求人情報に基づく採用意欲の分析</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-4 gap-4">
+              <div className="text-center p-3 rounded-lg bg-red-50 border border-red-100">
+                <div className="text-2xl font-bold text-red-600">{stats.intent_stats.hot}</div>
+                <div className="text-xs text-red-600/70 mt-1">ホット（7日以内）</div>
+              </div>
+              <div className="text-center p-3 rounded-lg bg-orange-50 border border-orange-100">
+                <div className="text-2xl font-bold text-orange-600">{stats.intent_stats.middle}</div>
+                <div className="text-xs text-orange-600/70 mt-1">ミドル（30日以内）</div>
+              </div>
+              <div className="text-center p-3 rounded-lg bg-gray-50 border border-gray-200">
+                <div className="text-2xl font-bold text-gray-500">{stats.intent_stats.low}</div>
+                <div className="text-xs text-gray-500/70 mt-1">ロー（90日以内）</div>
+              </div>
+              <div className="text-center p-3 rounded-lg bg-gray-50 border border-gray-100">
+                <div className="text-2xl font-bold text-gray-400">{stats.intent_stats.none}</div>
+                <div className="text-xs text-gray-400/70 mt-1">なし</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Quick Actions & Recent Activity */}
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Quick Actions */}
@@ -300,7 +338,7 @@ export default function DashboardPage() {
                       <div>
                         <div className="font-medium">{company.name}</div>
                         <div className="text-xs text-muted-foreground">
-                          {company.prefecture} &middot; {company.corporate_type}
+                          {company.prefecture}
                         </div>
                       </div>
                     </div>

@@ -43,3 +43,4 @@ data/houjin/*.csv
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+supabase/.temp/

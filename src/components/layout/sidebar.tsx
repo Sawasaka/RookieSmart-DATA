@@ -7,7 +7,6 @@ import {
   LayoutDashboard,
   Building2,
   Settings,
-  Database,
   Target,
   Sparkles,
   ChevronLeft,
@@ -27,12 +26,6 @@ const navigation = [
     name: '企業一覧',
     href: '/companies',
     icon: Building2,
-  },
-  {
-    name: 'データ管理',
-    href: '/data',
-    icon: Database,
-    badge: 'Beta',
   },
 ];
 
@@ -125,14 +118,7 @@ export function Sidebar() {
               >
                 <item.icon className="h-5 w-5 shrink-0" />
                 {!collapsed && (
-                  <>
-                    <span className="flex-1">{item.name}</span>
-                    {item.badge && (
-                      <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                        {item.badge}
-                      </span>
-                    )}
-                  </>
+                  <span className="flex-1">{item.name}</span>
                 )}
               </Link>
             );
