@@ -152,17 +152,27 @@ JSON配列のみを出力してください。拠点情報が見つからない�
 async function main() {
   console.log("=== 支店・拠点データ追加 開始 ===\n");
 
-  // Load enriched companies that only have headquarters
-  const { data: companies, error: compErr } = await supabase
-    .from("companies")
-    .select("id, name, website_url")
-    .eq("enrichment_status", "completed")
-    .order("name");
-
-  if (compErr || !companies) {
-    console.error("Failed to load companies:", compErr?.message);
-    process.exit(1);
+  // Load enriched companies (paginated)
+  let allCompanies: unknown[] = [];
+  let from = 0;
+  const PAGE = 500;
+  while (true) {
+    const { data: batch, error: batchErr } = await supabase
+      .from("companies")
+      .select("id, name, website_url")
+      .eq("enrichment_status", "completed")
+      .order("name")
+      .range(from, from + PAGE - 1);
+    if (batchErr) {
+      console.error("Failed to load companies:", batchErr.message);
+      process.exit(1);
+    }
+    if (!batch || batch.length === 0) break;
+    allCompanies = allCompanies.concat(batch);
+    if (batch.length < PAGE) break;
+    from += PAGE;
   }
+  const companies = allCompanies;
 
   // Filter to companies that only have 1 office (headquarters)
   const companiesNeedingOffices: Company[] = [];

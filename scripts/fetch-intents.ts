@@ -195,17 +195,26 @@ async function main() {
   console.log("=== インテントデータ取得 開始 ===\n");
   console.log(`部門タイプ: ${DEPARTMENT_TYPE} (情報システム)\n`);
 
-  // Load all companies
-  const { data: companies, error: compErr } = await supabase
-    .from("companies")
-    .select("id, name")
-    .order("name");
-
-  if (compErr || !companies) {
-    console.error("Failed to load companies:", compErr?.message);
-    process.exit(1);
+  // Load all companies (paginated)
+  let companies: Company[] = [];
+  let from = 0;
+  const PAGE = 500;
+  while (true) {
+    const { data: batch, error: batchErr } = await supabase
+      .from("companies")
+      .select("id, name")
+      .order("name")
+      .range(from, from + PAGE - 1);
+    if (batchErr) {
+      console.error("Failed to load companies:", batchErr.message);
+      process.exit(1);
+    }
+    if (!batch || batch.length === 0) break;
+    companies = companies.concat(batch as Company[]);
+    if (batch.length < PAGE) break;
+    from += PAGE;
   }
-  console.log(`対象企業: ${companies.length}社\n`);
+  console.log(`全企業: ${companies.length}社\n`);
 
   let processed = 0;
   let totalSignals = 0;
@@ -217,6 +226,18 @@ async function main() {
   for (let i = 0; i < companies.length; i++) {
     const company = companies[i] as Company;
     const progress = `[${i + 1}/${companies.length}]`;
+
+    // Skip if already has intent data
+    const { count: existingIntent } = await supabase
+      .from("company_intents")
+      .select("*", { count: "exact", head: true })
+      .eq("company_id", company.id)
+      .eq("department_type", DEPARTMENT_TYPE);
+
+    if (existingIntent && existingIntent > 0) {
+      continue;
+    }
+
     console.log(`${progress} ${company.name} ...`);
 
     try {
