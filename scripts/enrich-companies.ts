@@ -44,6 +44,9 @@ interface EnrichResult {
   employee_count: string;
   revenue: string;
   industry_name: string;
+  prefecture?: string;
+  city?: string;
+  address?: string;
 }
 
 // ── Serper search ──
@@ -184,6 +187,9 @@ async function extractWithClaude(
 - employee_count: 従業員数（例: "約50,000名"、"連結: 約300,000名"）
 - revenue: 売上高・営業収益（例: "約3兆円"、"約5,000億円"）
 - industry_name: 以下の業種リストから最も適切なものを1つ選択
+- prefecture: 本社所在地の都道府県（例: "東京都"）
+- city: 本社所在地の市区町村（例: "港区"）
+- address: 本社所在地の番地以降（例: "六本木一丁目6番1号"）
 
 業種リスト:
 ${industryList}
@@ -218,12 +224,28 @@ async function main() {
   }
   console.log(`業種マスタ: ${industries.length}件ロード済み`);
 
-  // Load pending companies
-  const { data: companies, error: compErr } = await supabase
-    .from("companies")
-    .select("id, name, prefecture, city, address")
-    .eq("enrichment_status", "pending")
-    .order("created_at", { ascending: true });
+  // Load pending companies (paginate to bypass 1000 row limit)
+  let allCompanies: Company[] = [];
+  let from = 0;
+  const PAGE = 500;
+  while (true) {
+    const { data: batch, error: batchErr } = await supabase
+      .from("companies")
+      .select("id, name, prefecture, city, address")
+      .eq("enrichment_status", "pending")
+      .order("created_at", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (batchErr) {
+      console.error("Failed to load companies:", batchErr.message);
+      process.exit(1);
+    }
+    if (!batch || batch.length === 0) break;
+    allCompanies = allCompanies.concat(batch as Company[]);
+    if (batch.length < PAGE) break;
+    from += PAGE;
+  }
+  const companies = allCompanies;
+  const compErr = null;
 
   if (compErr || !companies) {
     console.error("Failed to load companies:", compErr?.message);
@@ -233,6 +255,7 @@ async function main() {
 
   let completed = 0;
   let failed = 0;
+  const startTime = Date.now();
 
   for (let i = 0; i < companies.length; i++) {
     const company = companies[i] as Company;
@@ -268,6 +291,17 @@ async function main() {
       console.log(`  Employees: ${result.employee_count}`);
       console.log(`  Revenue: ${result.revenue}`);
 
+      // Truncate fields to avoid varchar overflow
+      if (result.employee_count && result.employee_count.length > 100) {
+        result.employee_count = result.employee_count.slice(0, 100);
+      }
+      if (result.revenue && result.revenue.length > 100) {
+        result.revenue = result.revenue.slice(0, 100);
+      }
+      if (result.prefecture && result.prefecture.length > 10) {
+        result.prefecture = result.prefecture.slice(0, 10);
+      }
+
       // Match industry_id
       const matchedIndustry = industries.find(
         (ind: Industry) =>
@@ -278,29 +312,40 @@ async function main() {
       const industryId = matchedIndustry?.id || null;
 
       // Step 4: Update companies table
+      const updateData: Record<string, unknown> = {
+        website_url: result.website_url || searchUrl,
+        industry_id: industryId,
+        service_summary: result.service_summary,
+        company_features: result.company_features,
+        employee_count: result.employee_count,
+        revenue: result.revenue,
+        enrichment_status: "completed",
+      };
+      // Update address if currently unknown
+      if (company.prefecture === "不明" || !company.prefecture) {
+        if (result.prefecture) updateData.prefecture = result.prefecture;
+        if (result.city) updateData.city = result.city;
+        if (result.address) updateData.address = result.address;
+      }
+
       const { error: updateErr } = await supabase
         .from("companies")
-        .update({
-          website_url: result.website_url || searchUrl,
-          industry_id: industryId,
-          service_summary: result.service_summary,
-          company_features: result.company_features,
-          employee_count: result.employee_count,
-          revenue: result.revenue,
-          enrichment_status: "completed",
-        })
+        .update(updateData)
         .eq("id", company.id);
 
       if (updateErr) throw new Error(`Update failed: ${updateErr.message}`);
 
       // Step 5: Insert office (headquarters)
+      const officePref = result.prefecture || company.prefecture;
+      const officeCity = result.city || company.city;
+      const officeAddr = result.address || company.address;
       const { error: officeErr } = await supabase.from("offices").insert({
         company_id: company.id,
         name: "本社",
         office_type: "headquarters",
-        prefecture: company.prefecture,
-        city: company.city,
-        address: company.address,
+        prefecture: officePref !== "不明" ? officePref : null,
+        city: officeCity,
+        address: officeAddr,
         website_url: result.website_url || searchUrl,
         is_primary: true,
       });
@@ -326,12 +371,22 @@ async function main() {
 
     // Rate limit wait
     await sleep(1000);
+
+    // Progress report every 50 companies
+    if ((i + 1) % 50 === 0) {
+      const elapsed = ((Date.now() - startTime) / 1000 / 60).toFixed(1);
+      console.log(`\n--- 中間レポート [${i + 1}/${companies.length}社] ---`);
+      console.log(`  成功: ${completed}社 / 失敗: ${failed}社 / 経過: ${elapsed}分`);
+      console.log(`---\n`);
+    }
   }
 
+  const totalMinutes = ((Date.now() - startTime) / 1000 / 60).toFixed(1);
   console.log("\n=== エンリッチメント完了 ===");
   console.log(`成功: ${completed}社`);
   console.log(`失敗: ${failed}社`);
   console.log(`合計: ${companies.length}社`);
+  console.log(`処理時間: ${totalMinutes}分`);
 
   // Final count verification
   const { count: completedCount } = await supabase
